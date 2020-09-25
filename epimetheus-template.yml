@@ -1,0 +1,254 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+labels:
+  template: epimetheus
+message: epimetheus template
+metadata:
+  annotations:
+    description: "Epimetheus"
+    openshift.io/display-name: Epimetheus
+    openshift.io/provider-display-name: CSC
+  name: epimetheus
+objects:
+# --------- database service
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      template.openshift.io/expose-uri: postgres://{.spec.clusterIP}:{.spec.ports[?(.name=="postgresql")].port}
+    name: postgresql
+  spec:
+    ports:
+    - name: postgresql
+      port: 5432
+      protocol: TCP
+      targetPort: 5432
+    selector:
+      name: postgresql
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+############ build images
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    labels:
+      build: epimetheus-backend
+    name: epimetheus-backend
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    labels:
+      build: epimetheus-frontend
+    name: epimetheus-frontend
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    name: "epimetheus-backend-build"
+  spec:
+    source:
+      git:
+        uri: "https://github.com/salabs/Epimetheus"
+      contextDir: backend_server
+      type: Git
+    strategy:
+      type: Docker
+    output:
+      to:
+        kind: "ImageStreamTag"
+        name: "epimetheus-backend:latest"
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    name: "epimetheus-frontend-build"
+  spec:
+    source:
+      git:
+        uri: "https://github.com/salabs/Epimetheus"
+      contextDir: frontend
+      type: Git
+    strategy:
+      type: Docker
+    output:
+      to:
+        kind: "ImageStreamTag"
+        name: "epimetheus-frontend:latest"
+########## database
+- apiVersion: apps.openshift.io/v1
+  kind: DeploymentConfig
+  metadata:
+    name: postgresql
+  spec:
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      name: postgresql
+    strategy:
+      activeDeadlineSeconds: 21600
+      recreateParams:
+        timeoutSeconds: 600
+      resources: {}
+      type: Recreate
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          name: postgresql
+      spec:
+        containers:
+        - env:
+          - name: POSTGRESQL_USER
+            valueFrom:
+              secretKeyRef:
+                key: database-user
+                name: postgresql
+          - name: POSTGRESQL_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: database-password
+                name: postgresql
+          - name: POSTGRESQL_DATABASE
+            valueFrom:
+              secretKeyRef:
+                key: database-name
+                name: postgresql
+          image: docker-registry.default.svc:5000/openshift/postgresql:10
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - /usr/libexec/check-container
+              - --live
+            failureThreshold: 3
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+          name: postgresql
+          ports:
+          - containerPort: 5432
+            protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+              - /usr/libexec/check-container
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              memory: 512Mi
+          securityContext:
+            capabilities: {}
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/pgsql/data
+            name: postgresql-data
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - name: postgresql-data
+          persistentVolumeClaim:
+            claimName: postgresql
+    test: false
+# --------- database volume
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: postgresql
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 1Gi
+    storageClassName: glusterfs-storage
+# --------- database secret
+- apiVersion: v1
+  kind: Secret
+  metadata:
+    name: postgresql
+    label:
+      app: epimetheus
+  stringData:
+    database-name: sampledb
+    database-password: ${POSTGRESQL_PASSWORD}
+    database-user: epimetheus
+  type: Opaque
+- apiVersion: apps.openshift.io/v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: epimetheus
+    name: epimetheus-backend
+  spec:
+    replicas: 1
+    selector:
+      app: epimetheus
+      deploymentconfig: epimetheus-backend
+    strategy:
+      activeDeadlineSeconds: 21600
+      resources: {}
+      rollingParams:
+        intervalSeconds: 1
+        maxSurge: 25%
+        maxUnavailable: 25%
+        timeoutSeconds: 600
+        updatePeriodSeconds: 1
+      type: Rolling
+    template:
+      metadata:
+        labels:
+          app: epimetheus
+          deploymentconfig: epimetheus-backend
+      spec:
+        containers:
+          - env:
+              - name: DATABASE
+                value: epimetheusdb
+              - name: HOST
+                value: postgresql
+              - name: USER
+                value: epimetheus
+              - name: PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    key: database-password
+                    name: postgresql
+              - name: PORT
+                value: '5000'
+            image: epimetheus-backend
+            imagePullPolicy: Always
+            name: epimetheus-backend
+            ports:
+              - containerPort: 5000
+                protocol: TCP
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+        restartPolicy: Always
+    test: false
+    triggers:
+      - type: ConfigChange
+      - imageChangeParams:
+          automatic: true
+          containerNames:
+            - epimetheus-backend
+          from:
+            kind: ImageStreamTag
+            name: 'epimetheus-backend:latest'
+        type: ImageChange
+
+parameters:
+  - description: "Password used for database authentication, if empty a random 25 characters password will be generated."
+    from: '[A-Za-z0-9]{25}'
+    generate: expression
+    displayName: Database password
+    name: POSTGRESQL_PASSWORD
