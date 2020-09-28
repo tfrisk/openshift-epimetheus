@@ -179,10 +179,11 @@ objects:
     label:
       app: epimetheus
   stringData:
-    database-name: sampledb
+    database-name: ${POSTGRESQL_DATABASE}
     database-password: ${POSTGRESQL_PASSWORD}
-    database-user: epimetheus
+    database-user: ${POSTGRESQL_USERNAME}
   type: Opaque
+# --------- Backend deployment
 - apiVersion: apps.openshift.io/v1
   kind: DeploymentConfig
   metadata:
@@ -213,11 +214,11 @@ objects:
         containers:
           - env:
               - name: DATABASE
-                value: epimetheusdb
+                value: ${POSTGRESQL_DATABASE}
               - name: HOST
                 value: postgresql
               - name: USER
-                value: epimetheus
+                value: ${POSTGRESQL_USERNAME}
               - name: PASSWORD
                 valueFrom:
                   secretKeyRef:
@@ -252,3 +253,11 @@ parameters:
     generate: expression
     displayName: Database password
     name: POSTGRESQL_PASSWORD
+  - description: "Name for a database that will be created."
+    displayName: Database name
+    value: epimetheus
+    name: POSTGRESQL_DATABASE
+  - description: "Database user that will be used by backend server."
+    displayName: Database user
+    value: epimetheus
+    name: POSTGRESQL_USERNAME
