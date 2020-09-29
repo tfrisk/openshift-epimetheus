@@ -29,6 +29,54 @@ objects:
     type: ClusterIP
   status:
     loadBalancer: {}
+# --------- backend service
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      template.openshift.io/expose-uri: http://{.spec.clusterIP}:{.spec.ports[?(.name=="epimetheus-backend")].port}
+    name: backend-server
+  spec:
+    ports:
+    - name: epimetheus-backend
+      port: 5000
+      protocol: TCP
+      targetPort: 5000
+    selector:
+      deploymentconfig: epimetheus-backend
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+# --------- frontend service
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      template.openshift.io/expose-uri: http://{.spec.clusterIP}:{.spec.ports[?(.name=="epimetheus-frontend")].port}
+    name: frontend
+  spec:
+    ports:
+    - name: epimetheus-frontend
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+    selector:
+      deploymentconfig: epimetheus-frontend
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+# --------- frontend route
+- apiVersion: v1
+  kind: Route
+  metadata:
+    name: frontend
+  spec:
+    path: "/"
+    to:
+      kind: Service
+      name: frontend
 ############ build images
 - apiVersion: image.openshift.io/v1
   kind: ImageStream
@@ -49,7 +97,8 @@ objects:
   spec:
     source:
       git:
-        uri: "https://github.com/salabs/Epimetheus"
+        ref: openshift-deployment # dev branch
+        uri: "https://github.com/tfrisk/Epimetheus"
       contextDir: backend_server
       type: Git
     strategy:
@@ -65,11 +114,14 @@ objects:
   spec:
     source:
       git:
-        uri: "https://github.com/salabs/Epimetheus"
+        ref: openshift-deployment # dev branch
+        uri: "https://github.com/tfrisk/Epimetheus"
       contextDir: frontend
       type: Git
     strategy:
       type: Docker
+      dockerStrategy:
+        dockerfilePath: Dockerfile-openshift # Use specific Dockerfile
     output:
       to:
         kind: "ImageStreamTag"
@@ -246,10 +298,64 @@ objects:
             kind: ImageStreamTag
             name: 'epimetheus-backend:latest'
         type: ImageChange
+# --------- Frontend deployment
+- apiVersion: apps.openshift.io/v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: epimetheus
+    name: epimetheus-frontend
+  spec:
+    replicas: 1
+    selector:
+      app: epimetheus
+      deploymentconfig: epimetheus-frontend
+    strategy:
+      activeDeadlineSeconds: 21600
+      resources: {}
+      rollingParams:
+        intervalSeconds: 1
+        maxSurge: 25%
+        maxUnavailable: 25%
+        timeoutSeconds: 600
+        updatePeriodSeconds: 1
+      type: Rolling
+    template:
+      metadata:
+        labels:
+          app: epimetheus
+          deploymentconfig: epimetheus-frontend
+      spec:
+        containers:
+          - env:
+              - name: REACT_APP_SERVER_URL
+                value: epimetheus-backend
+              - name: REACT_APP_FRONT_END_PORT
+                value: '5000'
+            image: epimetheus-frontend
+            imagePullPolicy: Always
+            name: epimetheus-frontend
+            ports:
+              - containerPort: 8080
+                protocol: TCP
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+        restartPolicy: Always
+    test: false
+    triggers:
+      - type: ConfigChange
+      - imageChangeParams:
+          automatic: true
+          containerNames:
+            - epimetheus-frontend
+          from:
+            kind: ImageStreamTag
+            name: 'epimetheus-frontend:latest'
+        type: ImageChange
 
 parameters:
-  - description: "Password used for database authentication, if empty a random 25 characters password will be generated."
-    from: '[A-Za-z0-9]{25}'
+  - description: "Password used for database authentication, if empty a random 35 characters password will be generated."
+    from: '[A-Za-z0-9]{35}'
     generate: expression
     displayName: Database password
     name: POSTGRESQL_PASSWORD
