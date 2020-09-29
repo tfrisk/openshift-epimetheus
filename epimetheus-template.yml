@@ -76,7 +76,7 @@ objects:
     name: frontend
   spec:
     port:
-      targetPort: 8080-tcp
+      targetPort: epimetheus-frontend
     tls:
       insecureEdgeTerminationPolicy: Redirect
       termination: edge
