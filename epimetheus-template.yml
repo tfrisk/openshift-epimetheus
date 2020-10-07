@@ -115,6 +115,8 @@ objects:
       to:
         kind: "ImageStreamTag"
         name: "epimetheus-backend:latest"
+    triggers:
+      - type: ConfigChange
 - apiVersion: v1
   kind: BuildConfig
   metadata:
@@ -134,6 +136,8 @@ objects:
       to:
         kind: "ImageStreamTag"
         name: "epimetheus-frontend:latest"
+    triggers:
+      - type: ConfigChange
 ########## database
 - apiVersion: apps.openshift.io/v1
   kind: DeploymentConfig
@@ -288,6 +292,12 @@ objects:
                 value: '5000'
             image: epimetheus-backend
             imagePullPolicy: Always
+            livenessProbe:
+              httpGet:
+                path: /
+                port: 5000
+              initialDelaySeconds: 15
+              periodSeconds: 60
             name: epimetheus-backend
             ports:
               - containerPort: 5000
@@ -342,6 +352,12 @@ objects:
                 value: '5000'
             image: epimetheus-frontend
             imagePullPolicy: Always
+            livenessProbe:
+              httpGet:
+                path: /
+                port: 8080
+              initialDelaySeconds: 15
+              periodSeconds: 60
             name: epimetheus-frontend
             ports:
               - containerPort: 8080
