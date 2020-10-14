@@ -15,16 +15,16 @@ objects:
   kind: Service
   metadata:
     annotations:
-      template.openshift.io/expose-uri: postgres://{.spec.clusterIP}:{.spec.ports[?(.name=="postgresql")].port}
-    name: postgresql
+      template.openshift.io/expose-uri: postgres://{.spec.clusterIP}:{.spec.ports[?(.name=="epimetheus-database")].port}
+    name: epimetheus-database
   spec:
     ports:
-    - name: postgresql
+    - name: epimetheus-database
       port: 5432
       protocol: TCP
       targetPort: 5432
     selector:
-      name: postgresql
+      name: epimetheus-database
     sessionAffinity: None
     type: ClusterIP
   status:
@@ -54,7 +54,7 @@ objects:
   metadata:
     annotations:
       template.openshift.io/expose-uri: http://{.spec.clusterIP}:{.spec.ports[?(.name=="epimetheus-frontend")].port}
-    name: frontend
+    name: epimetheus-frontend
   spec:
     ports:
     - name: epimetheus-frontend
@@ -73,7 +73,7 @@ objects:
   metadata:
     labels:
       app: epimetheus
-    name: frontend
+    name: epimetheus
   spec:
     port:
       targetPort: epimetheus-frontend
@@ -82,7 +82,7 @@ objects:
       termination: edge
     to:
       kind: Service
-      name: frontend
+      name: epimetheus-frontend
       weight: 100
     wildcardPolicy: None
 ############ build images
@@ -142,12 +142,14 @@ objects:
 - apiVersion: apps.openshift.io/v1
   kind: DeploymentConfig
   metadata:
-    name: postgresql
+    name: epimetheus-database
+    labels:
+      app: epimetheus
   spec:
     replicas: 1
     revisionHistoryLimit: 10
     selector:
-      name: postgresql
+      name: epimetheus-database
     strategy:
       activeDeadlineSeconds: 21600
       recreateParams:
@@ -158,7 +160,7 @@ objects:
       metadata:
         creationTimestamp: null
         labels:
-          name: postgresql
+          name: epimetheus-database
       spec:
         containers:
         - env:
@@ -166,17 +168,17 @@ objects:
             valueFrom:
               secretKeyRef:
                 key: database-user
-                name: postgresql
+                name: epimetheus-database
           - name: POSTGRESQL_PASSWORD
             valueFrom:
               secretKeyRef:
                 key: database-password
-                name: postgresql
+                name: epimetheus-database
           - name: POSTGRESQL_DATABASE
             valueFrom:
               secretKeyRef:
                 key: database-name
-                name: postgresql
+                name: epimetheus-database
           image: centos/postgresql-12-centos8
           imagePullPolicy: IfNotPresent
           livenessProbe:
@@ -189,7 +191,7 @@ objects:
             periodSeconds: 10
             successThreshold: 1
             timeoutSeconds: 10
-          name: postgresql
+          name: epimetheus-database
           ports:
           - containerPort: 5432
             protocol: TCP
@@ -198,7 +200,7 @@ objects:
               command:
               - /usr/libexec/check-container
             failureThreshold: 3
-            initialDelaySeconds: 5
+            initialDelaySeconds: 60
             periodSeconds: 10
             successThreshold: 1
             timeoutSeconds: 1
@@ -221,13 +223,13 @@ objects:
         volumes:
         - name: postgresql-data
           persistentVolumeClaim:
-            claimName: postgresql
+            claimName: epimetheus-database
     test: false
 # --------- database volume
 - apiVersion: v1
   kind: PersistentVolumeClaim
   metadata:
-    name: postgresql
+    name: epimetheus-database
   spec:
     accessModes:
     - ReadWriteOnce
@@ -239,7 +241,7 @@ objects:
 - apiVersion: v1
   kind: Secret
   metadata:
-    name: postgresql
+    name: epimetheus-database
     label:
       app: epimetheus
   stringData:
@@ -280,14 +282,14 @@ objects:
               - name: DATABASE
                 value: ${POSTGRESQL_DATABASE}
               - name: HOST
-                value: postgresql
+                value: epimetheus-database
               - name: USER
                 value: ${POSTGRESQL_USERNAME}
               - name: PASSWORD
                 valueFrom:
                   secretKeyRef:
                     key: database-password
-                    name: postgresql
+                    name: epimetheus-database
               - name: PORT
                 value: '5000'
             image: epimetheus-backend
