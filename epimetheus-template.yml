@@ -105,11 +105,14 @@ objects:
   spec:
     source:
       git:
-        ref: openshift-deployment # dev branch
-        uri: "https://github.com/tfrisk/Epimetheus"
+        uri: "https://github.com/salabs/Epimetheus"
       contextDir: backend_server
       type: Git
     strategy:
+      dockerStrategy:
+        env:
+          - name: PORT
+            value: '5000'
       type: Docker
     output:
       to:
@@ -124,14 +127,13 @@ objects:
   spec:
     source:
       git:
-        ref: openshift-deployment # dev branch
-        uri: "https://github.com/tfrisk/Epimetheus"
+        uri: "https://github.com/salabs/Epimetheus"
       contextDir: frontend
       type: Git
     strategy:
       type: Docker
       dockerStrategy:
-        dockerfilePath: Dockerfile-openshift # Use specific Dockerfile
+        dockerfilePath: Dockerfile-prod
     output:
       to:
         kind: "ImageStreamTag"
